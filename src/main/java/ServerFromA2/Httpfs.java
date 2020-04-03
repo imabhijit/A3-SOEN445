@@ -1,6 +1,6 @@
 package ServerFromA2;
 
-import clientSide.RequestType;
+import ClientFromA1.RequestType;
 
 import java.io.BufferedReader;
 import java.io.IOException;

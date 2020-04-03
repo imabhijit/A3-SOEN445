@@ -3,6 +3,7 @@ import joptsimple.OptionSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -11,6 +12,8 @@ import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Set;
 
 import static java.nio.channels.SelectionKey.OP_READ;
@@ -19,45 +22,82 @@ public class UDPClient {
 
     private static final Logger logger = LoggerFactory.getLogger(UDPClient.class);
 
-    private static void runClient(SocketAddress routerAddr, InetSocketAddress serverAddr) throws IOException {
+    private final int DATA = 0;
+    private final int SYN = 1;
+    private final int SYN_ACK = 2;
+    private final int ACK = 3;
+    private final int NAK = 4;
+
+    private static void runClient(SocketAddress routerAddr, ArrayList<Packet> packetList) throws IOException {
         try(DatagramChannel channel = DatagramChannel.open()){
-            String msg = "Hello World";
-            Packet p = new Packet.Builder()
-                    .setType(0)
-                    .setSequenceNumber(1L)
-                    .setPortNumber(serverAddr.getPort())
-                    .setPeerAddress(serverAddr.getAddress())
-                    .setPayload(msg.getBytes())
-                    .create();
-            channel.send(p.toBuffer(), routerAddr);
 
-            logger.info("Sending \"{}\" to router at {}", msg, routerAddr);
+            for(Packet p: packetList){
+                channel.send(p.toBuffer(), routerAddr);
+                logger.info("Sending \"{}\" to router at {}", p.getPayload().toString(), routerAddr);
 
-            // Try to receive a packet within timeout.
-            channel.configureBlocking(false);
-            Selector selector = Selector.open();
-            channel.register(selector, OP_READ);
-            logger.info("Waiting for the response");
-            selector.select(5000);
+                // Try to receive a packet within timeout.
+                channel.configureBlocking(false);
+                Selector selector = Selector.open();
+                channel.register(selector, OP_READ);
+                logger.info("Waiting for the response");
+                selector.select(5000);
 
-            Set<SelectionKey> keys = selector.selectedKeys();
-            if(keys.isEmpty()){
-                logger.error("No response after timeout");
-                return;
+                Set<SelectionKey> keys = selector.selectedKeys();
+                if(keys.isEmpty()){
+                    logger.error("No response after timeout");
+                    return;
+                }
+
+                // We just want a single response.
+                ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+                SocketAddress router = channel.receive(buf);
+                buf.flip();
+                Packet resp = Packet.fromBuffer(buf);
+                logger.info("Packet: {}", resp);
+                logger.info("Router: {}", router);
+                String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
+                logger.info("Payload: {}",  payload);
+
+                keys.clear();
+
             }
 
-            // We just want a single response.
-            ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
-            SocketAddress router = channel.receive(buf);
-            buf.flip();
-            Packet resp = Packet.fromBuffer(buf);
-            logger.info("Packet: {}", resp);
-            logger.info("Router: {}", router);
-            String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
-            logger.info("Payload: {}",  payload);
 
-            keys.clear();
         }
+    }
+
+    public static ArrayList<Packet> buildPackets(String data, InetSocketAddress serverAddr) throws IOException {
+        // payload of each packet should be between 0 and 1013 bytes
+        ArrayList<Packet> arrayOfPackets = new ArrayList<>();
+        byte[] dataInBytes = data.getBytes();
+        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(dataInBytes);
+        byte[] buffer = new byte[5];
+        byte[] payload;
+        int len;
+        int ctr = 0;
+
+        // Should we add syn here?
+
+        while((len = byteArrayInputStream.read(buffer)) > 0){
+            if(len < buffer.length){
+                // adds the last element of the array
+                payload = Arrays.copyOfRange(dataInBytes, ctr, ctr + len + 1);
+            }else{
+                payload = Arrays.copyOfRange(dataInBytes, ctr, ctr + len);
+            }
+
+            Packet p = new Packet.Builder()
+                    .setType(0) // TODO: make dynamic
+                    .setSequenceNumber(1L) // TODO: make dynamic
+                    .setPortNumber(serverAddr.getPort())
+                    .setPeerAddress(serverAddr.getAddress())
+                    .setPayload(payload)
+                    .create();
+
+            arrayOfPackets.add(p);
+            ctr = ctr + len;
+        }
+        return arrayOfPackets;
     }
 
     public static void main(String[] args) throws IOException {
@@ -91,7 +131,8 @@ public class UDPClient {
         SocketAddress routerAddress = new InetSocketAddress(routerHost, routerPort);
         InetSocketAddress serverAddress = new InetSocketAddress(serverHost, serverPort);
 
-        runClient(routerAddress, serverAddress);
+        ArrayList<Packet> packetList = buildPackets("Hello World",serverAddress);
+        runClient(routerAddress, packetList);
     }
 }
 
