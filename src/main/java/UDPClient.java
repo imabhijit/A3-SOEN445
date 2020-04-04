@@ -28,10 +28,11 @@ public class UDPClient {
     private static final int SYN_ACK = 2;
     private static final int ACK = 3;
     private static final int NAK = 4;
+    private static final int DATA_CHUNK_SIZE = 1013; //1013
 
     private static long startTime = 0;
     private static long endTime = 0;
-    private static long estimatedRTT = 0;
+    private static long estimatedRTT = 1000;
     private static long sampleRTT = 0;
     private static long devRTT = 0;
     private static long timeoutInterval = 10000;
@@ -43,7 +44,7 @@ public class UDPClient {
     private static ArrayList<Boolean> sentList;
 
 
-    private static void runClient(SocketAddress routerAddr, ArrayList<Packet> packetList) throws IOException {
+    private static void runClient(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet syn, Packet ack) throws IOException {
         try (DatagramChannel channel = DatagramChannel.open()) {
             ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
             sentList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
@@ -54,13 +55,15 @@ public class UDPClient {
             Selector selector = Selector.open();
             channel.register(selector, OP_READ);
 
+            doThreeWayHandshake(routerAddr, channel, syn, ack, selector);
+
+            //send data packets
             while (ackList.contains(false)) {
-                //TODO: implement handshake
                 //send new packets in window
                 sendWindow(routerAddr, packetList, channel, ackList, false);
 
                 // Try to receive a packet within timeout.
-                logger.info("Waiting for the response");
+                logger.info("Waiting for the response - {}ms", timeoutInterval);
                 selector.select(timeoutInterval);
 
                 Set<SelectionKey> keys = selector.selectedKeys();
@@ -89,6 +92,28 @@ public class UDPClient {
             }
 
 
+        }
+    }
+
+    private static void doThreeWayHandshake(SocketAddress routerAddr, DatagramChannel channel, Packet syn, Packet ack, Selector selector) throws IOException {
+        while(true){
+            //send SYN
+            sendPacket(routerAddr, channel, syn);
+            logger.info("Waiting for the SYN_ACK");
+            selector.select(timeoutInterval);
+            Set<SelectionKey> keys = selector.selectedKeys();
+            if (keys.isEmpty()) {
+                logger.error("No response after timeout. Sending SYN again.");
+                continue;
+            }
+            Packet response = receivePacket(channel);
+            if (response.getType() == NAK) {
+                sendPacket(routerAddr, channel, syn);
+            }
+            if (response.getType() == SYN_ACK) {
+                sendPacket(routerAddr, channel, ack);
+                break;
+            }
         }
     }
 
@@ -133,24 +158,12 @@ public class UDPClient {
         timeoutInterval = estimatedRTT + 4 * devRTT;
     }
 
-    //TODO: implement handshake
-    public static boolean threeWayHandshake(InetSocketAddress serverAddr, SocketAddress routerAddr, DatagramChannel channel) throws IOException {
-        //send SYN
-        Packet syn = makePacket(serverAddr, SYN, new byte[]{});
-        sendPacket(routerAddr, channel, syn);
-        //Receive SYN_ACK
-
-        //send ACK + payload: numberPackets
-        Packet ack = makePacket(serverAddr, ACK, String.valueOf(numberOfPackets).getBytes());
-        return true;
-    }
-
     public static ArrayList<Packet> buildPackets(String data, InetSocketAddress serverAddr, int packetType) throws IOException {
         // payload of each packet should be between 0 and 1013 bytes
         ArrayList<Packet> arrayOfPackets = new ArrayList<>();
         byte[] dataInBytes = data.getBytes();
         ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(dataInBytes);
-        byte[] buffer = new byte[5];
+        byte[] buffer = new byte[DATA_CHUNK_SIZE];
         byte[] payload;
         int len;
         int ctr = 0;
@@ -169,7 +182,7 @@ public class UDPClient {
             ctr = ctr + len;
         }
         numberOfPackets = arrayOfPackets.size();
-        windowEnd = numberOfPackets / 2;
+        windowEnd = (numberOfPackets>1) ? (numberOfPackets / 2) : 1;
         return arrayOfPackets;
     }
 
@@ -215,7 +228,10 @@ public class UDPClient {
         InetSocketAddress serverAddress = new InetSocketAddress(serverHost, serverPort);
 
         ArrayList<Packet> packetList = buildPackets("Hello World123456789", serverAddress, DATA);
-        runClient(routerAddress, packetList);
+        //handshake packets
+        Packet syn = makePacket(serverAddress, SYN, ("SYN").getBytes());
+        Packet ack = makePacket(serverAddress, ACK, String.valueOf(numberOfPackets).getBytes());
+        runClient(routerAddress, packetList, syn, ack);
     }
 }
 
