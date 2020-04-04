@@ -39,7 +39,7 @@ public class UDPServer {
                 buf.flip();
                 Packet packet = Packet.fromBuffer(buf);
                 buf.flip();
-
+                logger.info("RECEIVED PACKET----------------------");
                 String payload = new String(packet.getPayload(), UTF_8);
                 logger.info("Packet: {}", packet);
                 logger.info("Payload: {}", payload);

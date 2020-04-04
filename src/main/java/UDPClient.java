@@ -39,28 +39,39 @@ public class UDPClient {
     private static int windowEnd = 0;
     private static int numberOfPackets = 0;
     private static long sequenceNumber = 0;
+    private static ArrayList<Boolean> ackList;
+    private static ArrayList<Boolean> sentList;
 
 
     private static void runClient(SocketAddress routerAddr, ArrayList<Packet> packetList) throws IOException {
         try (DatagramChannel channel = DatagramChannel.open()) {
-            ArrayList<Boolean> ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
+            ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
+            sentList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
             Collections.fill(ackList, Boolean.FALSE);
+            Collections.fill(sentList, Boolean.FALSE);
+
+            channel.configureBlocking(false);
+            Selector selector = Selector.open();
+            channel.register(selector, OP_READ);
 
             while (ackList.contains(false)) {
                 //TODO: implement handshake
-                //send window
-                if(!ackList.get(windowHead)) {
-                    sendWindow(routerAddr, packetList, channel, ackList);
-                }
+                //send new packets in window
+                sendWindow(routerAddr, packetList, channel, ackList, false);
 
                 // Try to receive a packet within timeout.
-                channel.configureBlocking(false);
-                Selector selector = Selector.open();
-                channel.register(selector, OP_READ);
                 logger.info("Waiting for the response");
                 selector.select(timeoutInterval);
 
-                //receive packet
+                Set<SelectionKey> keys = selector.selectedKeys();
+                if (keys.isEmpty()) {
+                    logger.error("No response after timeout. Sending un-ACKed packets");
+                    //send list of packets that were not ACK
+                    sendWindow(routerAddr, packetList, channel, ackList, true);
+                    continue;
+                }
+
+                //receive packet when available in channel (asynchronous)
                 Packet response = receivePacket(channel);
                 if (response.getType() == NAK) {
                     sendPacket(routerAddr, channel, packetList.get((int) response.getSequenceNumber()));
@@ -73,13 +84,6 @@ public class UDPClient {
                     }
                 }
 
-                Set<SelectionKey> keys = selector.selectedKeys();
-                if (keys.isEmpty()) {
-                    logger.error("No response after timeout");
-                    //send list of packets that were not ACK
-                    sendWindow(routerAddr, packetList, channel, ackList);
-                }
-
                 updateRTT();
                 keys.clear();
             }
@@ -88,10 +92,11 @@ public class UDPClient {
         }
     }
 
-    private static void sendWindow(SocketAddress routerAddr, ArrayList<Packet> packetList, DatagramChannel channel, ArrayList<Boolean> ackList) throws IOException {
+    private static void sendWindow(SocketAddress routerAddr, ArrayList<Packet> packetList, DatagramChannel channel, ArrayList<Boolean> ackList, boolean wasPreviouslySent) throws IOException {
         for (int i = windowHead; i < windowEnd; i++) {
-            if(!ackList.get(i)) {
+            if (!ackList.get(i) && sentList.get(i) == wasPreviouslySent) {
                 sendPacket(routerAddr, channel, packetList.get(i));
+                sentList.set(i, true);
             }
         }
     }
@@ -106,6 +111,7 @@ public class UDPClient {
         buf.flip();
         //read from buffer and create packet
         Packet resp = Packet.fromBuffer(buf);
+        logger.info("RECEIVED PACKET----------------------");
         logger.info("Packet: {}", resp);
         logger.info("Router: {}", router);
         String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
