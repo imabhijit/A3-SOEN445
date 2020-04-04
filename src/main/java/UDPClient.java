@@ -28,11 +28,20 @@ public class UDPClient {
     private final int ACK = 3;
     private final int NAK = 4;
 
+    private static long startTime = 0;
+    private static long endTime = 0;
+    private static long estimatedRTT = 0;
+    private static long sampleRTT = 0;
+    private static long devRTT = 0;
+    private static long timeoutInterval = 0;
+
     private static void runClient(SocketAddress routerAddr, ArrayList<Packet> packetList) throws IOException {
         try(DatagramChannel channel = DatagramChannel.open()){
 
             for(Packet p: packetList){
                 channel.send(p.toBuffer(), routerAddr);
+                // start timer
+                long startTime = System.currentTimeMillis();
                 logger.info("Sending \"{}\" to router at {}", p.getPayload().toString(), routerAddr);
 
                 // Try to receive a packet within timeout.
@@ -51,6 +60,7 @@ public class UDPClient {
                 // We just want a single response.
                 ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
                 SocketAddress router = channel.receive(buf);
+                long endTime = System.currentTimeMillis();
                 buf.flip();
                 Packet resp = Packet.fromBuffer(buf);
                 logger.info("Packet: {}", resp);
@@ -58,12 +68,20 @@ public class UDPClient {
                 String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
                 logger.info("Payload: {}",  payload);
 
+                updateRTT();
                 keys.clear();
 
             }
 
 
         }
+    }
+
+    public static void updateRTT(){
+        sampleRTT = endTime - startTime;
+        estimatedRTT = (long) (( 0.875 * estimatedRTT) + (0.125 * sampleRTT));
+        devRTT = (long) ((0.75 * devRTT) + 0.25 * (Math.abs(sampleRTT - estimatedRTT)));
+        timeoutInterval = estimatedRTT + 4 * devRTT;
     }
 
     public static ArrayList<Packet> buildPackets(String data, InetSocketAddress serverAddr) throws IOException {
