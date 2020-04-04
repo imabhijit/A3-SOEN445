@@ -51,17 +51,15 @@ public class UDPClient {
             Collections.fill(ackList, Boolean.FALSE);
             Collections.fill(sentList, Boolean.FALSE);
 
-            channel.configureBlocking(false);
-            Selector selector = Selector.open();
-            channel.register(selector, OP_READ);
-
-            doThreeWayHandshake(routerAddr, channel, syn, ack, selector);
+            doThreeWayHandshake(routerAddr, channel, syn, ack);
 
             //send data packets
             while (ackList.contains(false)) {
                 //send new packets in window
                 sendWindow(routerAddr, packetList, channel, ackList, false);
-
+                channel.configureBlocking(false);
+                Selector selector = Selector.open();
+                channel.register(selector, OP_READ);
                 // Try to receive a packet within timeout.
                 logger.info("Waiting for the response - {}ms", timeoutInterval);
                 selector.select(timeoutInterval);
@@ -95,10 +93,15 @@ public class UDPClient {
         }
     }
 
-    private static void doThreeWayHandshake(SocketAddress routerAddr, DatagramChannel channel, Packet syn, Packet ack, Selector selector) throws IOException {
+    private static void doThreeWayHandshake(SocketAddress routerAddr, DatagramChannel channel, Packet syn, Packet ack) throws IOException {
         while(true){
             //send SYN
             sendPacket(routerAddr, channel, syn);
+
+            channel.configureBlocking(false);
+            Selector selector = Selector.open();
+            channel.register(selector, OP_READ);
+
             logger.info("Waiting for the SYN_ACK");
             selector.select(timeoutInterval);
             Set<SelectionKey> keys = selector.selectedKeys();
@@ -106,6 +109,7 @@ public class UDPClient {
                 logger.error("No response after timeout. Sending SYN again.");
                 continue;
             }
+
             Packet response = receivePacket(channel);
             if (response.getType() == NAK) {
                 sendPacket(routerAddr, channel, syn);
@@ -114,6 +118,7 @@ public class UDPClient {
                 sendPacket(routerAddr, channel, ack);
                 break;
             }
+            keys.clear();
         }
     }
 
@@ -169,12 +174,7 @@ public class UDPClient {
         int ctr = 0;
 
         while ((len = byteArrayInputStream.read(buffer)) > 0) {
-            if (len < buffer.length) {
-                // adds the last element of the array
-                payload = Arrays.copyOfRange(dataInBytes, ctr, ctr + len + 1);
-            } else {
-                payload = Arrays.copyOfRange(dataInBytes, ctr, ctr + len);
-            }
+            payload = Arrays.copyOfRange(dataInBytes, ctr, ctr + len);
 
             Packet p = makePacket(serverAddr, packetType, payload);
 
@@ -182,7 +182,7 @@ public class UDPClient {
             ctr = ctr + len;
         }
         numberOfPackets = arrayOfPackets.size();
-        windowEnd = (numberOfPackets>1) ? (numberOfPackets / 2) : 1;
+        windowEnd = (numberOfPackets > 1) ? (numberOfPackets / 2) : 1;
         return arrayOfPackets;
     }
 
