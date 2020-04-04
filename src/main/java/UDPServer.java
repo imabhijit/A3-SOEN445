@@ -16,6 +16,11 @@ import static java.util.Arrays.asList;
 public class UDPServer {
 
     private static final Logger logger = LoggerFactory.getLogger(UDPServer.class);
+    private static final int DATA = 0;
+    private static final int SYN = 1;
+    private static final int SYN_ACK = 2;
+    private static final int ACK = 3;
+    private static final int NAK = 4;
 
     private void listenAndServe(int port) throws IOException {
 
@@ -46,6 +51,8 @@ public class UDPServer {
                 // This demonstrate how to create a new packet from an existing packet.
                 Packet resp = packet.toBuilder()
                         .setPayload(payload.getBytes())
+                        .setType(ACK)
+                        .setSequenceNumber(packet.getSequenceNumber())
                         .create();
                 channel.send(resp.toBuffer(), router);
 
