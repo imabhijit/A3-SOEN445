@@ -250,11 +250,11 @@ public class UDPClient {
     public static void sendRequestToRouter() throws IOException {
         SocketAddress routerAddress = new InetSocketAddress("localhost", 3000);
         InetSocketAddress serverAddress = new InetSocketAddress("localhost", 8007);
+        //data packets
+        ArrayList<Packet> packetList = UDPClient.buildPackets(getSender(), serverAddress, DATA);
         //handshake packets
         Packet syn = makePacket(serverAddress, SYN, ("SYN").getBytes());
         Packet ack = makePacket(serverAddress, ACK, String.valueOf(numberOfPackets).getBytes());
-        //data packets
-        ArrayList<Packet> packetList = UDPClient.buildPackets(getSender(), serverAddress, DATA);
         Packet fin = makePacket(serverAddress, FIN, ("FIN").getBytes());
         UDPClient.runClient(routerAddress, packetList, syn, ack, fin);
     }
