@@ -235,13 +235,22 @@ public class UDPClient {
         sender = sender.concat(header + "\n");
 
         if(requestType == RequestType.GET) sendGetRequest();
-//        if(requestType == RequestType.POST) sendPostRequest(header, data);
+        if(requestType == RequestType.POST) sendPostRequest(header, data);
 
 //        printResponse(verbose);
 //        socket.close();
     }
 
     private void sendGetRequest() throws IOException {
+        sender = sender.concat("Connection: Close");
+        sender = sender.concat("\n");
+        sendRequestToRouter();
+    }
+
+    private void sendPostRequest(String header, String data) throws IOException {
+        sender = sender.concat("Content-Length: "+data.length());
+        sender = sender.concat("\n");
+        sender = sender.concat(data);
         sender = sender.concat("Connection: Close");
         sender = sender.concat("\n");
         sendRequestToRouter();
