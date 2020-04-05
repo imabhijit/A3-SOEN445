@@ -89,9 +89,6 @@ public class UDPServer {
                         break;
                     case FIN:
                         serveResource(channel, buf);
-                        channel.socket().close();
-                        channel.close();
-                        channel.disconnect();
                         return;
                     default:
                         responseType = NAK;
@@ -166,7 +163,7 @@ public class UDPServer {
         channel.send(p.toBuffer(), routerAddr);
         // start timer
         startTime = System.currentTimeMillis();
-        logger.info("Sending \"{}\" to router at {}", new String(p.getPayload(), StandardCharsets.UTF_8), routerAddr);
+        logger.info("----------------------------Sending \"{}\" to router at {}", new String(p.getPayload(), StandardCharsets.UTF_8), routerAddr);
     }
 
     public static void updateRTT() {
@@ -181,13 +178,13 @@ public class UDPServer {
             sentList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
             Collections.fill(ackList, Boolean.FALSE);
             Collections.fill(sentList, Boolean.FALSE);
+            Selector selector = Selector.open();
 
             //send data packets
             while (ackList.contains(false)) {
                 //send new packets in window
                 sendWindow(routerAddr, packetList, channel, ackList, false);
                 channel.configureBlocking(false);
-                Selector selector = Selector.open();
                 channel.register(selector, OP_READ);
                 // Try to receive a packet within timeout.
                 logger.info("Waiting for the response - {}ms", timeoutInterval);
@@ -219,6 +216,8 @@ public class UDPServer {
             }
             buf.flip();
             sendPacket(routerAddr, channel, fin);
+            selector.close();
+            channel.close();
     }
 
     public static Packet receiveClientPacket(DatagramChannel channel, ByteBuffer buf) throws IOException {
