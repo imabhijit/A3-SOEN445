@@ -49,7 +49,7 @@ public class UDPServer {
 
     private static String httpVersion;
     private static String filePath;
-    private static String pathToMainDirectory = "java/documents";
+    private static String pathToMainDirectory = "src/main/java/documents";
     private static String requestSpecification = "";
     private static boolean debugging;
     private static String headers = "";
