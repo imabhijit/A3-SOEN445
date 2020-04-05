@@ -81,7 +81,6 @@ public class UDPServer {
                         payload = "SYN_ACK";
                         break;
                     case ACK:
-                        numberOfPackets = Integer.valueOf(payload);
                         break;
                     case DATA:
                         responseType = ACK;
@@ -198,7 +197,7 @@ public class UDPServer {
                 }
 
                 //receive packet when available in channel (asynchronous)
-                Packet response = UDPClient.receivePacket(channel);
+                Packet response = receiveClientPacket(channel);
                 if (response.getType() == NAK) {
                     sendPacket(routerAddr, channel, packetList.get((int) response.getSequenceNumber()));
                 }
@@ -217,12 +216,31 @@ public class UDPServer {
             return;
     }
 
+    public static Packet receiveClientPacket(DatagramChannel channel) throws IOException {
+        // We just want a single response.
+        ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+        //write to the buffer
+        SocketAddress router = channel.receive(buf);
+        endTime = System.currentTimeMillis();
+        //change buffer to be readable
+        buf.flip();
+        //read from buffer and create packet
+        Packet resp = Packet.fromBuffer(buf);
+        logger.info("RECEIVED PACKET----------------------");
+        logger.info("Packet: {}", resp);
+        logger.info("Router: {}", router);
+        String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
+        logger.info("Payload: {}", payload);
+
+        return resp;
+    }
+
     ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private String packetPayloadsToString() {
         StringBuilder sb = new StringBuilder();
-        for(String payload: payloadMap.values()){
-            sb.append(payload);
+        for(int i=0; i<payloadMap.size(); i++){
+            sb.append(payloadMap.get(i));
         }
         return sb.toString();
     }
@@ -235,7 +253,6 @@ public class UDPServer {
             responseWriter = new StringBuilder();
             String request = parseRequest(requestReader);
             resource = createResponse(request);
-            System.out.println(resource);
 
             resetVars();
         } catch (IOException e) {
