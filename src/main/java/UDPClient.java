@@ -6,8 +6,10 @@ import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -23,12 +25,12 @@ public class UDPClient {
 
     private static final Logger logger = LoggerFactory.getLogger(UDPClient.class);
 
-    private static final int DATA = 0;
-    private static final int SYN = 1;
-    private static final int SYN_ACK = 2;
-    private static final int ACK = 3;
-    private static final int NAK = 4;
-    private static final int DATA_CHUNK_SIZE = 1013; //1013
+    protected static final int DATA = 0;
+    protected static final int SYN = 1;
+    protected static final int SYN_ACK = 2;
+    protected static final int ACK = 3;
+    protected static final int NAK = 4;
+    protected static final int DATA_CHUNK_SIZE = 1013; //1013
 
     private static long startTime = 0;
     private static long endTime = 0;
@@ -38,13 +40,13 @@ public class UDPClient {
     private static long timeoutInterval = 10000;
     private static int windowHead = 0;
     private static int windowEnd = 0;
-    private static int numberOfPackets = 0;
+    protected static int numberOfPackets = 0;
     private static long sequenceNumber = 0;
     private static ArrayList<Boolean> ackList;
     private static ArrayList<Boolean> sentList;
 
 
-    private static void runClient(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet syn, Packet ack) throws IOException {
+    protected static void runClient(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet syn, Packet ack) throws IOException {
         try (DatagramChannel channel = DatagramChannel.open()) {
             ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
             sentList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
@@ -146,6 +148,7 @@ public class UDPClient {
         logger.info("Router: {}", router);
         String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
         logger.info("Payload: {}", payload);
+
         return resp;
     }
 
@@ -163,7 +166,7 @@ public class UDPClient {
         timeoutInterval = estimatedRTT + 4 * devRTT;
     }
 
-    public static ArrayList<Packet> buildPackets(String data, InetSocketAddress serverAddr, int packetType) throws IOException {
+    protected static ArrayList<Packet> buildPackets(String data, InetSocketAddress serverAddr, int packetType) throws IOException {
         // payload of each packet should be between 0 and 1013 bytes
         ArrayList<Packet> arrayOfPackets = new ArrayList<>();
         byte[] dataInBytes = data.getBytes();
@@ -186,7 +189,7 @@ public class UDPClient {
         return arrayOfPackets;
     }
 
-    private static Packet makePacket(InetSocketAddress serverAddr, int packetType, byte[] payload) {
+    protected static Packet makePacket(InetSocketAddress serverAddr, int packetType, byte[] payload) {
         return new Packet.Builder()
                 .setType(packetType)
                 .setSequenceNumber(sequenceNumber++)
@@ -196,42 +199,75 @@ public class UDPClient {
                 .create();
     }
 
-    public static void main(String[] args) throws IOException {
-        OptionParser parser = new OptionParser();
-        parser.accepts("router-host", "Router hostname")
-                .withOptionalArg()
-                .defaultsTo("localhost");
+    private Socket socket;
+    private static String sender = "";
+    private static String receiver;
+    private Boolean outputToFile;
+    private String filePath;
 
-        parser.accepts("router-port", "Router port number")
-                .withOptionalArg()
-                .defaultsTo("3000");
+    private UDPClient() {
+        //do not allow creating of TCP client without any params;
+    }
 
-        parser.accepts("server-host", "EchoServer hostname")
-                .withOptionalArg()
-                .defaultsTo("localhost");
+    public void setOutputToFile(Boolean outputToFile) {
+        this.outputToFile = outputToFile;
+    }
 
-        parser.accepts("server-port", "EchoServer listening port")
-                .withOptionalArg()
-                .defaultsTo("8007");
+    public void setFilePath(String filePath) {
+        this.filePath = filePath;
+    }
 
-        OptionSet opts = parser.parse(args);
+    public UDPClient(Socket socket, String sender, String receiver) {
+        this.socket = socket;
+        this.sender = sender;
+        this.receiver = receiver;
+    }
 
-        // Router address
-        String routerHost = (String) opts.valueOf("router-host");
-        int routerPort = Integer.parseInt((String) opts.valueOf("router-port"));
+    public UDPClient(String host, int port){
+        try{
+            this.socket = new Socket(host, port);
+            this.sender = "";
+            this.receiver = "";
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
-        // Server address
-        String serverHost = (String) opts.valueOf("server-host");
-        int serverPort = Integer.parseInt((String) opts.valueOf("server-port"));
+    public static String getSender(){
+        return sender;
+    }
 
-        SocketAddress routerAddress = new InetSocketAddress(routerHost, routerPort);
-        InetSocketAddress serverAddress = new InetSocketAddress(serverHost, serverPort);
+    public String getReceiver(){
+        return this.receiver;
+    }
 
-        ArrayList<Packet> packetList = buildPackets("Hello World123456789", serverAddress, DATA);
+    public void sendRequest(RequestType requestType, String endpoint, String host, String header, String data, boolean verbose) throws IOException {
+        sender = sender.concat(requestType+" "+endpoint+" HTTP/1.0" + "\n");
+        sender = sender.concat("Host: "+host + "\n");
+        sender = sender.concat(header + "\n");
+
+        if(requestType == RequestType.GET) sendGetRequest();
+//        if(requestType == RequestType.POST) sendPostRequest(header, data);
+
+//        printResponse(verbose);
+//        socket.close();
+    }
+
+    private void sendGetRequest() throws IOException {
+        sender = sender.concat("Connection: Close");
+        sender = sender.concat("\n");
+        sendRequestToRouter();
+    }
+
+    public static void sendRequestToRouter() throws IOException {
+        //        3. Client is running at port 41830 (uses an ephemeral port) at the host 192.168.2.125
+        SocketAddress routerAddress = new InetSocketAddress("localhost", 3000);
+        InetSocketAddress serverAddress = new InetSocketAddress("localhost", 8007);
+        ArrayList<Packet> packetList = UDPClient.buildPackets(getSender(), serverAddress, DATA);
         //handshake packets
         Packet syn = makePacket(serverAddress, SYN, ("SYN").getBytes());
         Packet ack = makePacket(serverAddress, ACK, String.valueOf(numberOfPackets).getBytes());
-        runClient(routerAddress, packetList, syn, ack);
+        UDPClient.runClient(routerAddress, packetList, syn, ack);
     }
 }
 

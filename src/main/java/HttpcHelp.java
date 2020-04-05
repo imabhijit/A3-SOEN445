@@ -1,5 +1,3 @@
-package ClientFromA1;
-
 public class HttpcHelp {
 
     public void printHelp(){
