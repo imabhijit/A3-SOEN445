@@ -1,15 +1,19 @@
-package ClientFromA1;
+import joptsimple.OptionParser;
+import joptsimple.OptionSet;
 
 import java.io.*;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.net.URL;
+import java.util.ArrayList;
 
 
 public class Httpc {
     static String host;
     static RequestType requestType;
-    static String endpoint;
-    static String header;
-    static String data;
+    static String endpoint = "";
+    static String header = "";
+    static String data = "";
     static boolean verbose = false;
     static HttpcHelp helpWriter = new HttpcHelp();
     static int urlIndex = 1;
@@ -34,24 +38,27 @@ public class Httpc {
             } else if (args[0].equalsIgnoreCase("get")) {
                 requestType = RequestType.GET;
                 processRequest(args);
+                parseAndSendRequest(args);
             } else if (args[0].equalsIgnoreCase("post")) {
                 requestType = RequestType.POST;
                 processRequest(args);
-            }
-
-            try {
-                URL url = new URL(args[urlIndex]);
-                host = url.getHost();
-                endpoint = url.getFile();
-                Client client = new Client(host, (url.getPort()==-1) ? 80: url.getPort());
-                client.setOutputToFile(outputToFile);
-                client.setFilePath(filepath);
-                client.sendRequest(requestType, endpoint, host, header, data, verbose);
-            } catch (IOException e) {
-                e.printStackTrace();
+                parseAndSendRequest(args);
             }
         }
+    }
 
+    public static void parseAndSendRequest(String[] args){
+        try {
+            URL url = new URL(args[urlIndex]);
+            host = url.getHost();
+            endpoint = url.getFile();
+            UDPClient client = new UDPClient(host, (url.getPort()==-1) ? 80: url.getPort());
+            client.setOutputToFile(outputToFile);
+            client.setFilePath(filepath);
+            client.sendRequest(requestType, endpoint, host, header, data, verbose);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     public static void processRequest(String[] args) {
@@ -118,4 +125,5 @@ public class Httpc {
         }
         return str.toString();
     }
+
 }
