@@ -1,5 +1,3 @@
-import ClientFromA1.RequestType;
-import ServerFromA2.Status;
 import joptsimple.OptionParser;
 import joptsimple.OptionSet;
 import org.slf4j.Logger;
@@ -11,13 +9,16 @@ import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
+import java.util.*;
 
+import static java.nio.channels.SelectionKey.OP_READ;
 import static java.util.Arrays.asList;
 
 public class UDPServer {
@@ -30,11 +31,21 @@ public class UDPServer {
     private static final int NAK = 4;
     private static final int FIN = 5;
 
+    protected static final int DATA_CHUNK_SIZE = 1013; //1013
+
+    private static long startTime = 0;
+    private static long endTime = 0;
+    private static long estimatedRTT = 1000;
+    private static long sampleRTT = 0;
+    private static long devRTT = 0;
+    private static long timeoutInterval = 10000;
     private static int windowHead = 0;
     private static int windowEnd = 0;
-    private static int numberOfPackets = 0;
+    protected static int numberOfPackets = 0;
     private static long sequenceNumber = 0;
-    private static ArrayList<String> payloadList;
+    private static ArrayList<Boolean> ackList;
+    private static ArrayList<Boolean> sentList;
+    private static HashMap<Integer, String> payloadMap;
 
     private static String httpVersion;
     private static String filePath;
@@ -44,11 +55,12 @@ public class UDPServer {
     private static String headers = "";
     private static String data = "";
     private static RequestType requestType;
+    InetSocketAddress clientAddr;
 
     private void listenAndServe(int port) throws IOException {
 
         try (DatagramChannel channel = DatagramChannel.open()) {
-            payloadList = new ArrayList<>();
+            payloadMap = new HashMap<>();
             channel.bind(new InetSocketAddress(port));
             logger.info("EchoServer is listening at {}", channel.getLocalAddress());
             ByteBuffer buf = ByteBuffer
@@ -58,9 +70,9 @@ public class UDPServer {
             for (; ; ) {
                 buf.clear();
                 SocketAddress router = channel.receive(buf);
-
                 int responseType = 0;
-                Packet receivedPacket = receivePacket(channel, buf, router);
+                Packet receivedPacket = receivePacket(buf, router);
+                clientAddr = new InetSocketAddress("localhost", receivedPacket.getPeerPort());
                 String payload = new String(receivedPacket.getPayload(), StandardCharsets.UTF_8);
                 int requestType = receivedPacket.getType();
                 switch (requestType){
@@ -73,10 +85,10 @@ public class UDPServer {
                         break;
                     case DATA:
                         responseType = ACK;
-                        payloadList.set((int) receivedPacket.getSequenceNumber(), payload);
+                        payloadMap.put((int) receivedPacket.getSequenceNumber(), payload);
                         break;
                     case FIN:
-                        serveResource();
+                        serveResource(channel, buf);
                         break;
                     default:
                         responseType = NAK;
@@ -94,15 +106,122 @@ public class UDPServer {
         }
     }
 
-    private void serveResource() {
+    private void serveResource(DatagramChannel channel, ByteBuffer buf) throws IOException {
+        SocketAddress routerAddress = new InetSocketAddress("localhost", 3000);
         String requestedData = packetPayloadsToString();
         String resourceData = getResource(requestedData);
-        //TODO: break into packets and send it to client
+        ArrayList<Packet> packetList = buildPackets(resourceData, clientAddr, DATA);
+        Packet fin = makePacket(clientAddr, FIN, ("FIN").getBytes());
+        sendToClient(routerAddress, packetList, fin, channel, buf);
     }
+
+    //////////////////////////////////////////////////////////////////////////////
+    protected static ArrayList<Packet> buildPackets(String data, InetSocketAddress clientAddr, int packetType) throws IOException {
+        // payload of each packet should be between 0 and 1013 bytes
+        ArrayList<Packet> arrayOfPackets = new ArrayList<>();
+        byte[] dataInBytes = data.getBytes();
+        ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(dataInBytes);
+        byte[] buffer = new byte[DATA_CHUNK_SIZE];
+        byte[] payload;
+        int len;
+        int ctr = 0;
+
+        while ((len = byteArrayInputStream.read(buffer)) > 0) {
+            payload = Arrays.copyOfRange(dataInBytes, ctr, ctr + len);
+
+            Packet p = makePacket(clientAddr, packetType, payload);
+
+            arrayOfPackets.add(p);
+            ctr = ctr + len;
+        }
+        numberOfPackets = arrayOfPackets.size();
+        windowEnd = (numberOfPackets > 1) ? (numberOfPackets / 2) : 1;
+        return arrayOfPackets;
+    }
+
+    protected static Packet makePacket(InetSocketAddress clientAddr, int packetType, byte[] payload) {
+        return new Packet.Builder()
+                .setType(packetType)
+                .setSequenceNumber(sequenceNumber++)
+                .setPortNumber(clientAddr.getPort())
+                .setPeerAddress(clientAddr.getAddress())
+                .setPayload(payload)
+                .create();
+    }
+
+    private static void sendWindow(SocketAddress routerAddr, ArrayList<Packet> packetList, DatagramChannel channel, ArrayList<Boolean> ackList, boolean wasPreviouslySent) throws IOException {
+        for (int i = windowHead; i < windowEnd; i++) {
+            if (!ackList.get(i) && sentList.get(i) == wasPreviouslySent) {
+                sendPacket(routerAddr, channel, packetList.get(i));
+                sentList.set(i, true);
+            }
+        }
+    }
+
+    private static void sendPacket(SocketAddress routerAddr, DatagramChannel channel, Packet p) throws IOException {
+        channel.send(p.toBuffer(), routerAddr);
+        // start timer
+        startTime = System.currentTimeMillis();
+        logger.info("Sending \"{}\" to router at {}", new String(p.getPayload(), StandardCharsets.UTF_8), routerAddr);
+    }
+
+    public static void updateRTT() {
+        sampleRTT = endTime - startTime;
+        estimatedRTT = (long) ((0.875 * estimatedRTT) + (0.125 * sampleRTT));
+        devRTT = (long) ((0.75 * devRTT) + 0.25 * (Math.abs(sampleRTT - estimatedRTT)));
+        timeoutInterval = estimatedRTT + 4 * devRTT;
+    }
+
+    protected static void sendToClient(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet fin, DatagramChannel channel, ByteBuffer buf) throws IOException {
+            ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
+            sentList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
+            Collections.fill(ackList, Boolean.FALSE);
+            Collections.fill(sentList, Boolean.FALSE);
+
+            //send data packets
+            while (ackList.contains(false)) {
+                //send new packets in window
+                sendWindow(routerAddr, packetList, channel, ackList, false);
+                channel.configureBlocking(false);
+                Selector selector = Selector.open();
+                channel.register(selector, OP_READ);
+                // Try to receive a packet within timeout.
+                logger.info("Waiting for the response - {}ms", timeoutInterval);
+                selector.select(timeoutInterval);
+
+                Set<SelectionKey> keys = selector.selectedKeys();
+                if (keys.isEmpty()) {
+                    logger.error("No response after timeout. Sending un-ACKed packets");
+                    //send list of packets that were not ACK
+                    sendWindow(routerAddr, packetList, channel, ackList, true);
+                    continue;
+                }
+
+                //receive packet when available in channel (asynchronous)
+                Packet response = UDPClient.receivePacket(channel);
+                if (response.getType() == NAK) {
+                    sendPacket(routerAddr, channel, packetList.get((int) response.getSequenceNumber()));
+                }
+                if (response.getType() == ACK) {
+                    ackList.set((int) response.getSequenceNumber(), true);
+                    while (windowEnd < ackList.size() && ackList.get(windowHead) == true) {
+                        windowHead += 1;
+                        windowEnd += 1;
+                    }
+                }
+
+                updateRTT();
+                keys.clear();
+            }
+            sendPacket(routerAddr, channel, fin);
+            return;
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
 
     private String packetPayloadsToString() {
         StringBuilder sb = new StringBuilder();
-        for(String payload: payloadList){
+        for(String payload: payloadMap.values()){
             sb.append(payload);
         }
         return sb.toString();
@@ -223,7 +342,7 @@ public class UDPServer {
                 .create();
     }
 
-    private static Packet receivePacket(DatagramChannel channel, ByteBuffer buf, SocketAddress router) throws IOException {
+    private static Packet receivePacket(ByteBuffer buf, SocketAddress router) throws IOException {
         //change buffer to be readable
         buf.flip();
         //read from buffer and create packet

@@ -1,12 +1,9 @@
-import joptsimple.OptionParser;
-import joptsimple.OptionSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -14,10 +11,7 @@ import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Set;
+import java.util.*;
 
 import static java.nio.channels.SelectionKey.OP_READ;
 
@@ -30,6 +24,8 @@ public class UDPClient {
     protected static final int SYN_ACK = 2;
     protected static final int ACK = 3;
     protected static final int NAK = 4;
+    protected static final int FIN = 5;
+
     protected static final int DATA_CHUNK_SIZE = 1013; //1013
 
     private static long startTime = 0;
@@ -42,12 +38,15 @@ public class UDPClient {
     private static int windowEnd = 0;
     protected static int numberOfPackets = 0;
     private static long sequenceNumber = 0;
+    private static long port = 0;
     private static ArrayList<Boolean> ackList;
     private static ArrayList<Boolean> sentList;
+    private static HashMap<Integer, String> payloadMap;
 
 
-    protected static void runClient(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet syn, Packet ack) throws IOException {
+    protected static void runClient(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet syn, Packet ack, Packet fin) throws IOException {
         try (DatagramChannel channel = DatagramChannel.open()) {
+            channel.bind(new InetSocketAddress(41830));
             ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
             sentList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
             Collections.fill(ackList, Boolean.FALSE);
@@ -91,7 +90,8 @@ public class UDPClient {
                 keys.clear();
             }
 
-
+            sendPacket(routerAddr, channel, fin);
+            listenForResourcePackets(channel, routerAddr);
         }
     }
 
@@ -133,7 +133,7 @@ public class UDPClient {
         }
     }
 
-    private static Packet receivePacket(DatagramChannel channel) throws IOException {
+    public static Packet receivePacket(DatagramChannel channel) throws IOException {
         // We just want a single response.
         ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
         //write to the buffer
@@ -199,7 +199,6 @@ public class UDPClient {
                 .create();
     }
 
-    private Socket socket;
     private static String sender = "";
     private static String receiver;
     private Boolean outputToFile;
@@ -217,20 +216,9 @@ public class UDPClient {
         this.filePath = filePath;
     }
 
-    public UDPClient(Socket socket, String sender, String receiver) {
-        this.socket = socket;
-        this.sender = sender;
-        this.receiver = receiver;
-    }
-
     public UDPClient(String host, int port){
-        try{
-            this.socket = new Socket(host, port);
-            this.sender = "";
-            this.receiver = "";
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        this.sender = "";
+        this.receiver = "";
     }
 
     public static String getSender(){
@@ -260,14 +248,99 @@ public class UDPClient {
     }
 
     public static void sendRequestToRouter() throws IOException {
-        //        3. Client is running at port 41830 (uses an ephemeral port) at the host 192.168.2.125
         SocketAddress routerAddress = new InetSocketAddress("localhost", 3000);
         InetSocketAddress serverAddress = new InetSocketAddress("localhost", 8007);
-        ArrayList<Packet> packetList = UDPClient.buildPackets(getSender(), serverAddress, DATA);
         //handshake packets
         Packet syn = makePacket(serverAddress, SYN, ("SYN").getBytes());
         Packet ack = makePacket(serverAddress, ACK, String.valueOf(numberOfPackets).getBytes());
-        UDPClient.runClient(routerAddress, packetList, syn, ack);
+        //data packets
+        ArrayList<Packet> packetList = UDPClient.buildPackets(getSender(), serverAddress, DATA);
+        Packet fin = makePacket(serverAddress, FIN, ("FIN").getBytes());
+        UDPClient.runClient(routerAddress, packetList, syn, ack, fin);
+    }
+
+    private static void listenForResourcePackets(DatagramChannel channel, SocketAddress routerAddr) throws IOException {
+        payloadMap = new HashMap<>();
+            for (; ; ) {
+                channel.configureBlocking(false);
+                Selector selector = Selector.open();
+                channel.register(selector, OP_READ);
+                // Try to receive a packet within timeout.
+                logger.info("Waiting for the response - {}ms", timeoutInterval);
+                selector.select(timeoutInterval);
+
+                Set<SelectionKey> keys = selector.selectedKeys();
+                if (keys.isEmpty()) {
+                    continue;
+                }
+
+                int responseType = 0;
+                Packet receivedPacket = receivePacket(channel);
+                String payload = new String(receivedPacket.getPayload(), StandardCharsets.UTF_8);
+                int requestType = receivedPacket.getType();
+                switch (requestType) {
+                    case SYN:
+                        responseType = SYN_ACK;
+                        payload = "SYN_ACK";
+                        break;
+                    case ACK:
+                        numberOfPackets = Integer.valueOf(payload);
+                        break;
+                    case DATA:
+                        responseType = ACK;
+                        payloadMap.put((int) receivedPacket.getSequenceNumber(), payload);
+                        break;
+                    case FIN:
+                        printResource();
+                        break;
+                    default:
+                        responseType = NAK;
+                        break;
+                }
+                // Send the response to the router not the client.
+                // The peer address of the packet is the address of the client already.
+                // We can use toBuilder to copy properties of the current packet.
+                // This demonstrate how to create a new packet from an existing packet.
+                if (requestType != ACK && requestType != FIN) {
+                    Packet resp = makeResponsePacket(responseType, payload, receivedPacket);
+                    sendPacket(routerAddr, channel, resp);
+                }
+            }
+    }
+
+    private static void printResource() throws IOException {
+        String resource = packetPayloadsToString();
+        System.out.println(resource);
+        System.exit(0);
+    }
+
+    private static Packet makeResponsePacket(int responseType, String payload, Packet packet) {
+        return packet.toBuilder()
+                .setPayload(payload.getBytes())
+                .setType(responseType)
+                .setSequenceNumber(packet.getSequenceNumber())
+                .create();
+    }
+
+    private static String packetPayloadsToString() {
+        StringBuilder sb = new StringBuilder();
+        for(String payload: payloadMap.values()){
+            sb.append(payload);
+        }
+        return sb.toString();
+    }
+    private static Packet receiveResource(ByteBuffer buf, SocketAddress router) throws IOException {
+        //change buffer to be readable
+        buf.flip();
+        //read from buffer and create packet
+        Packet resp = Packet.fromBuffer(buf);
+        buf.flip();
+        logger.info("RECEIVED PACKET----------------------");
+        logger.info("Packet: {}", resp);
+        logger.info("Router: {}", router);
+        String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
+        logger.info("Payload: {}", payload);
+        return resp;
     }
 }
 
