@@ -75,7 +75,7 @@ public class UDPServer {
                 clientAddr = new InetSocketAddress("localhost", receivedPacket.getPeerPort());
                 String payload = new String(receivedPacket.getPayload(), StandardCharsets.UTF_8);
                 int requestType = receivedPacket.getType();
-                switch (requestType){
+                switch (requestType) {
                     case SYN:
                         responseType = SYN_ACK;
                         payload = "SYN_ACK";
@@ -97,7 +97,7 @@ public class UDPServer {
                 // The peer address of the packet is the address of the client already.
                 // We can use toBuilder to copy properties of the current packet.
                 // This demonstrate how to create a new packet from an existing packet.
-                if(requestType != ACK && requestType != FIN) {
+                if (requestType != ACK && requestType != FIN) {
                     Packet resp = makeResponsePacket(responseType, payload, receivedPacket);
                     buf.flip();
                     logger.info("Sending {} Packet #{} to router at {}", packetTypeToString(resp.getType()), resp.getSequenceNumber(), router);
@@ -167,7 +167,7 @@ public class UDPServer {
     }
 
     private static String packetTypeToString(int type) {
-        switch (type){
+        switch (type) {
             case 0:
                 return "DATA";
             case 1:
@@ -193,51 +193,58 @@ public class UDPServer {
     }
 
     protected static void sendToClient(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet fin, DatagramChannel channel, ByteBuffer buf) throws IOException {
+        logger.info("Sending resource to client.");
         ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
-            sentList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
-            Collections.fill(ackList, Boolean.FALSE);
-            Collections.fill(sentList, Boolean.FALSE);
-            Selector selector = Selector.open();
+        sentList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
+        Collections.fill(ackList, Boolean.FALSE);
+        Collections.fill(sentList, Boolean.FALSE);
+        Selector selector = Selector.open();
 
-            //send data packets
-            while (ackList.contains(false)) {
-                //send new packets in window
-                logger.info("Sending resource to client.");
-                sendWindow(routerAddr, packetList, channel, ackList, false);
-                channel.configureBlocking(false);
-                channel.register(selector, OP_READ);
-                // Try to receive a packet within timeout.
-                logger.info("Waiting for the response - {}ms", timeoutInterval);
-                selector.select(timeoutInterval);
+        //send data packets
+        int count = 0;
 
-                Set<SelectionKey> keys = selector.selectedKeys();
-                if (keys.isEmpty()) {
-                    logger.error("No response after timeout. Sending un-ACKed packets");
-                    //send list of packets that were not ACK
-                    sendWindow(routerAddr, packetList, channel, ackList, true);
-                    continue;
-                }
+        while (ackList.contains(false)) {
+            //send new packets in window
+            sendWindow(routerAddr, packetList, channel, ackList, false);
+            channel.configureBlocking(false);
+            channel.register(selector, OP_READ);
+            // Try to receive a packet within timeout.
+            timeoutInterval = (timeoutInterval>10000)? 10000: timeoutInterval;
+            logger.info("Waiting for the response - {}ms", timeoutInterval);
+            selector.select(timeoutInterval);
 
-                //receive packet when available in channel (asynchronous)
-                Packet response = receiveClientPacket(channel, buf);
-                buf.flip();
-                if (response.getType() == NAK) {
-                    sendPacket(routerAddr, channel, packetList.get((int) response.getSequenceNumber()));
+            Set<SelectionKey> keys = selector.selectedKeys();
+            if (keys.isEmpty()) {
+                if (count > 5) {
+                    break;
                 }
-                if (response.getType() == ACK) {
-                    ackList.set((int) response.getSequenceNumber(), true);
-                    while (windowEnd < ackList.size() && ackList.get(windowHead) == true) {
-                        windowHead += 1;
-                        windowEnd += 1;
-                    }
-                }
-                updateRTT();
-                keys.clear();
+                logger.error("No response after timeout. Sending un-ACKed packets");
+                //send list of packets that were not ACK
+                sendWindow(routerAddr, packetList, channel, ackList, true);
+                count += 1;
+                continue;
             }
+
+            //receive packet when available in channel (asynchronous)
+            Packet response = receiveClientPacket(channel, buf);
             buf.flip();
-            sendPacket(routerAddr, channel, fin);
-            selector.close();
-            channel.close();
+            if (response.getType() == NAK) {
+                sendPacket(routerAddr, channel, packetList.get((int) response.getSequenceNumber()));
+            }
+            if (response.getType() == ACK) {
+                ackList.set((int) response.getSequenceNumber(), true);
+                while (windowEnd < ackList.size() && ackList.get(windowHead) == true) {
+                    windowHead += 1;
+                    windowEnd += 1;
+                }
+            }
+            updateRTT();
+            keys.clear();
+        }
+        buf.flip();
+        sendPacket(routerAddr, channel, fin);
+        selector.close();
+        channel.close();
     }
 
     public static Packet receiveClientPacket(DatagramChannel channel, ByteBuffer buf) throws IOException {
@@ -257,7 +264,7 @@ public class UDPServer {
 
     private String packetPayloadsToString() {
         StringBuilder sb = new StringBuilder();
-        for(int i=0; i<payloadMap.size(); i++){
+        for (int i = 0; i < payloadMap.size(); i++) {
             sb.append(payloadMap.get(i));
         }
         return sb.toString();
@@ -275,7 +282,7 @@ public class UDPServer {
             resetVars();
         } catch (IOException e) {
             e.printStackTrace();
-        } catch (Exception e){
+        } catch (Exception e) {
             e.printStackTrace();
             System.out.println("Something went wrong, try again");
             responseWriter.append(requestSpecification + httpVersion + " " + Status.BAD_REQUEST.toString() + "\r\n" + headers + "\r\n");
@@ -332,7 +339,7 @@ public class UDPServer {
             Path path = Paths.get(pathToMainDirectory + filePath);
             try {
                 Files.createDirectories(path.getParent());
-                if(!Files.isWritable(path.getParent())){
+                if (!Files.isWritable(path.getParent())) {
                     return requestSpecification + httpVersion + " " + Status.FORBIDDEN.toString() + "\r\n" + headers + "\r\n";
                 }
                 contentType = Files.probeContentType(path);
@@ -354,8 +361,8 @@ public class UDPServer {
         if (!filePath.equals("/") && !filePath.equals("/..")) {
             Path path = Paths.get(pathToMainDirectory + filePath);
             try {
-                if(Files.notExists(path) || Files.isDirectory(path)) throw new IOException();
-                if(!Files.isReadable(path)){
+                if (Files.notExists(path) || Files.isDirectory(path)) throw new IOException();
+                if (!Files.isReadable(path)) {
                     return requestSpecification + httpVersion + " " + Status.FORBIDDEN.toString() + "\r\n" + headers + "\r\n";
                 }
                 contentType = Files.probeContentType(path);
@@ -371,7 +378,7 @@ public class UDPServer {
     }
 
     private Packet makeResponsePacket(int responseType, String payload, Packet packet) {
-         return packet.toBuilder()
+        return packet.toBuilder()
                 .setPayload(payload.getBytes())
                 .setType(responseType)
                 .setSequenceNumber(packet.getSequenceNumber())
@@ -394,7 +401,7 @@ public class UDPServer {
         OptionSet opts = parser.parse(args);
         int port = Integer.parseInt((String) opts.valueOf("port"));
         UDPServer server = new UDPServer();
-        while(true) {
+        while (true) {
             server.listenAndServe(port);
             logger.info("----END OF TRANSACTION----");
             sequenceNumber = 0;

@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -88,10 +87,10 @@ public class UDPClient {
 
                 updateRTT();
                 keys.clear();
+                selector.close();
             }
-
             sendPacket(routerAddr, channel, fin);
-            listenForResourcePackets(channel, routerAddr);
+            listenForResourcePackets(channel, routerAddr, fin);
         }
     }
 
@@ -263,8 +262,10 @@ public class UDPClient {
         UDPClient.runClient(routerAddress, packetList, syn, ack, fin);
     }
 
-    private static void listenForResourcePackets(DatagramChannel channel, SocketAddress routerAddr) throws IOException {
+    private static void listenForResourcePackets(DatagramChannel channel, SocketAddress routerAddr, Packet fin) throws IOException {
         payloadMap = new HashMap<>();
+        boolean initialCycle = true;
+        int count = 0;
             for (; ; ) {
                 channel.configureBlocking(false);
                 Selector selector = Selector.open();
@@ -275,9 +276,18 @@ public class UDPClient {
 
                 Set<SelectionKey> keys = selector.selectedKeys();
                 if (keys.isEmpty()) {
+                    if(initialCycle){
+                        initialCycle = false;
+                        logger.info("Trying FIN again.");
+                        sendPacket(routerAddr, channel, fin);
+                    }
+                    if(count > 4){
+                        logger.info("Number of tries exceeded, printing received resources and exiting.");
+                        printResource();
+                    }
+                    count+=1;
                     continue;
                 }
-
                 int responseType = 0;
                 Packet receivedPacket = receivePacket(channel);
                 String payload = new String(receivedPacket.getPayload(), StandardCharsets.UTF_8);
@@ -309,6 +319,7 @@ public class UDPClient {
                     Packet resp = makeResponsePacket(responseType, payload, receivedPacket);
                     sendPacket(routerAddr, channel, resp);
                 }
+                initialCycle = false;
             }
     }
 
