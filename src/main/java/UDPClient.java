@@ -143,11 +143,7 @@ public class UDPClient {
         buf.flip();
         //read from buffer and create packet
         Packet resp = Packet.fromBuffer(buf);
-        logger.info("RECEIVED PACKET----------------------");
-        logger.info("Packet: {}", resp);
-        logger.info("Router: {}", router);
-        String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
-        logger.info("Payload: {}", payload);
+        logger.info("Received {} Packet #{} from router at {}", packetTypeToString(resp.getType()), resp.getSequenceNumber(), router);
 
         return resp;
     }
@@ -156,7 +152,7 @@ public class UDPClient {
         channel.send(p.toBuffer(), routerAddr);
         // start timer
         startTime = System.currentTimeMillis();
-        logger.info("Sending \"{}\" to router at {}", new String(p.getPayload(), StandardCharsets.UTF_8), routerAddr);
+        logger.info("Sending {} Packet #{} to router at {}", packetTypeToString(p.getType()), p.getSequenceNumber(), routerAddr);
     }
 
     public static void updateRTT() {
@@ -275,7 +271,7 @@ public class UDPClient {
                 Selector selector = Selector.open();
                 channel.register(selector, OP_READ);
                 // Try to receive a packet within timeout.
-                logger.info("Waiting for the response - {}ms", timeoutInterval);
+                logger.info("Waiting for the resource packets - {}ms", timeoutInterval);
                 selector.select(timeoutInterval);
 
                 Set<SelectionKey> keys = selector.selectedKeys();
@@ -333,23 +329,29 @@ public class UDPClient {
 
     private static String packetPayloadsToString() {
         StringBuilder sb = new StringBuilder();
-        for(String payload: payloadMap.values()){
-            sb.append(payload);
+        for(int i=0; i<payloadMap.size(); i++){
+            sb.append(payloadMap.get(i));
         }
         return sb.toString();
     }
-    private static Packet receiveResource(ByteBuffer buf, SocketAddress router) throws IOException {
-        //change buffer to be readable
-        buf.flip();
-        //read from buffer and create packet
-        Packet resp = Packet.fromBuffer(buf);
-        buf.flip();
-        logger.info("RECEIVED PACKET----------------------");
-        logger.info("Packet: {}", resp);
-        logger.info("Router: {}", router);
-        String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
-        logger.info("Payload: {}", payload);
-        return resp;
+
+    private static String packetTypeToString(int type) {
+        switch (type){
+            case 0:
+                return "DATA";
+            case 1:
+                return "SYN";
+            case 2:
+                return "SYN_ACK";
+            case 3:
+                return "ACK";
+            case 4:
+                return "NAK";
+            case 5:
+                return "FIN";
+            default:
+                return "NAK";
+        }
     }
 }
 

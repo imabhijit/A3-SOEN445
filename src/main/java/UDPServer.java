@@ -100,6 +100,7 @@ public class UDPServer {
                 if(requestType != ACK && requestType != FIN) {
                     Packet resp = makeResponsePacket(responseType, payload, receivedPacket);
                     buf.flip();
+                    logger.info("Sending {} Packet #{} to router at {}", packetTypeToString(resp.getType()), resp.getSequenceNumber(), router);
                     channel.send(resp.toBuffer(), router);
                 }
             }
@@ -115,7 +116,7 @@ public class UDPServer {
         sendToClient(routerAddress, packetList, fin, channel, buf);
     }
 
-    //////////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////TAKEN FROM UDP CLIENT - NEEDS REFACTORING ///////////////////////////////////////////////
     protected static ArrayList<Packet> buildPackets(String data, InetSocketAddress clientAddr, int packetType) throws IOException {
         // payload of each packet should be between 0 and 1013 bytes
         ArrayList<Packet> arrayOfPackets = new ArrayList<>();
@@ -162,7 +163,26 @@ public class UDPServer {
         channel.send(p.toBuffer(), routerAddr);
         // start timer
         startTime = System.currentTimeMillis();
-        logger.info("----------------------------Sending \"{}\" to router at {}", new String(p.getPayload(), StandardCharsets.UTF_8), routerAddr);
+        logger.info("Sending {} Packet #{} to router at {}", packetTypeToString(p.getType()), p.getSequenceNumber(), routerAddr);
+    }
+
+    private static String packetTypeToString(int type) {
+        switch (type){
+            case 0:
+                return "DATA";
+            case 1:
+                return "SYN";
+            case 2:
+                return "SYN_ACK";
+            case 3:
+                return "ACK";
+            case 4:
+                return "NAK";
+            case 5:
+                return "FIN";
+            default:
+                return "NAK";
+        }
     }
 
     public static void updateRTT() {
@@ -182,6 +202,7 @@ public class UDPServer {
             //send data packets
             while (ackList.contains(false)) {
                 //send new packets in window
+                logger.info("Sending resource to client.");
                 sendWindow(routerAddr, packetList, channel, ackList, false);
                 channel.configureBlocking(false);
                 channel.register(selector, OP_READ);
@@ -228,12 +249,7 @@ public class UDPServer {
         buf.flip();
         //read from buffer and create packet
         Packet resp = Packet.fromBuffer(buf);
-        logger.info("RECEIVED PACKET----------------------");
-        logger.info("Packet: {}", resp);
-        logger.info("Router: {}", router);
-        String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
-        logger.info("Payload: {}", payload);
-
+        logger.info("Received {} Packet #{} from router at {}", packetTypeToString(resp.getType()), resp.getSequenceNumber(), router);
         return resp;
     }
 
@@ -364,11 +380,7 @@ public class UDPServer {
     private static Packet receivePacket(ByteBuffer buf, SocketAddress router) throws IOException {
         //read from buffer and create packet
         Packet resp = Packet.fromBuffer(buf);
-        logger.info("RECEIVED PACKET----------------------");
-        logger.info("Packet: {}", resp);
-        logger.info("Router: {}", router);
-        String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
-        logger.info("Payload: {}", payload);
+        logger.info("Received {} Packet #{} from router at {}", packetTypeToString(resp.getType()), resp.getSequenceNumber(), router);
         return resp;
     }
 
@@ -383,6 +395,7 @@ public class UDPServer {
         UDPServer server = new UDPServer();
         while(true) {
             server.listenAndServe(port);
+            logger.info("----END OF TRANSACTION----");
             sequenceNumber = 0;
         }
     }
