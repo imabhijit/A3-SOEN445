@@ -244,7 +244,6 @@ public class UDPClient {
     }
 
     private void sendPostRequest(String header, String data) throws IOException {
-        sender = sender.concat("Content-Length: "+data.length());
         sender = sender.concat("\n");
         sender = sender.concat(data);
         sender = sender.concat("Connection: Close");

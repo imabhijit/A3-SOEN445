@@ -297,7 +297,8 @@ public class UDPServer {
             if (line.isEmpty()) break;
 
             if (line.contains("Content-Length")) {
-                count = Integer.valueOf(line.split(":")[1]);
+                String len = line.split(":")[1].trim();
+                count = Integer.valueOf(len);
             }
 
             if (!line.contains("Content-")) {
