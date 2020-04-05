@@ -71,6 +71,7 @@ public class UDPServer {
                 buf.clear();
                 SocketAddress router = channel.receive(buf);
                 int responseType = 0;
+                buf.flip();
                 Packet receivedPacket = receivePacket(buf, router);
                 clientAddr = new InetSocketAddress("localhost", receivedPacket.getPeerPort());
                 String payload = new String(receivedPacket.getPayload(), StandardCharsets.UTF_8);
@@ -88,7 +89,10 @@ public class UDPServer {
                         break;
                     case FIN:
                         serveResource(channel, buf);
-                        break;
+                        channel.socket().close();
+                        channel.close();
+                        channel.disconnect();
+                        return;
                     default:
                         responseType = NAK;
                         break;
@@ -99,6 +103,7 @@ public class UDPServer {
                 // This demonstrate how to create a new packet from an existing packet.
                 if(requestType != ACK && requestType != FIN) {
                     Packet resp = makeResponsePacket(responseType, payload, receivedPacket);
+                    buf.flip();
                     channel.send(resp.toBuffer(), router);
                 }
             }
@@ -197,7 +202,8 @@ public class UDPServer {
                 }
 
                 //receive packet when available in channel (asynchronous)
-                Packet response = receiveClientPacket(channel);
+                Packet response = receiveClientPacket(channel, buf);
+                buf.flip();
                 if (response.getType() == NAK) {
                     sendPacket(routerAddr, channel, packetList.get((int) response.getSequenceNumber()));
                 }
@@ -208,17 +214,15 @@ public class UDPServer {
                         windowEnd += 1;
                     }
                 }
-
                 updateRTT();
                 keys.clear();
             }
+            buf.flip();
             sendPacket(routerAddr, channel, fin);
-            return;
     }
 
-    public static Packet receiveClientPacket(DatagramChannel channel) throws IOException {
-        // We just want a single response.
-        ByteBuffer buf = ByteBuffer.allocate(Packet.MAX_LEN);
+    public static Packet receiveClientPacket(DatagramChannel channel, ByteBuffer buf) throws IOException {
+        buf.clear();
         //write to the buffer
         SocketAddress router = channel.receive(buf);
         endTime = System.currentTimeMillis();
@@ -360,11 +364,8 @@ public class UDPServer {
     }
 
     private static Packet receivePacket(ByteBuffer buf, SocketAddress router) throws IOException {
-        //change buffer to be readable
-        buf.flip();
         //read from buffer and create packet
         Packet resp = Packet.fromBuffer(buf);
-        buf.flip();
         logger.info("RECEIVED PACKET----------------------");
         logger.info("Packet: {}", resp);
         logger.info("Router: {}", router);
@@ -382,7 +383,9 @@ public class UDPServer {
         OptionSet opts = parser.parse(args);
         int port = Integer.parseInt((String) opts.valueOf("port"));
         UDPServer server = new UDPServer();
-        server.listenAndServe(port);
+        while(true) {
+            server.listenAndServe(port);
+        }
     }
 
     private static void resetVars() {
