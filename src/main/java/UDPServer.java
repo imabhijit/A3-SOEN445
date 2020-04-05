@@ -58,7 +58,6 @@ public class UDPServer {
     InetSocketAddress clientAddr;
 
     private void listenAndServe(int port) throws IOException {
-
         try (DatagramChannel channel = DatagramChannel.open()) {
             payloadMap = new HashMap<>();
             channel.bind(new InetSocketAddress(port));
@@ -174,7 +173,7 @@ public class UDPServer {
     }
 
     protected static void sendToClient(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet fin, DatagramChannel channel, ByteBuffer buf) throws IOException {
-            ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
+        ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
             sentList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
             Collections.fill(ackList, Boolean.FALSE);
             Collections.fill(sentList, Boolean.FALSE);
@@ -384,6 +383,7 @@ public class UDPServer {
         UDPServer server = new UDPServer();
         while(true) {
             server.listenAndServe(port);
+            sequenceNumber = 0;
         }
     }
 

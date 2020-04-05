@@ -262,9 +262,9 @@ public class UDPClient {
         //data packets
         ArrayList<Packet> packetList = UDPClient.buildPackets(getSender(), serverAddress, DATA);
         //handshake packets
-        Packet syn = makePacket(serverAddress, SYN, ("SYN").getBytes());
-        Packet ack = makePacket(serverAddress, ACK, String.valueOf(numberOfPackets).getBytes());
-        Packet fin = makePacket(serverAddress, FIN, ("FIN").getBytes());
+        Packet syn = makePacket(serverAddress, SYN, ("SYN").getBytes()).toBuilder().setSequenceNumber(0).create();
+        Packet ack = makePacket(serverAddress, ACK, String.valueOf(numberOfPackets).getBytes()).toBuilder().setSequenceNumber(1).create();
+        Packet fin = makePacket(serverAddress, FIN, ("FIN").getBytes()).toBuilder().setSequenceNumber(sequenceNumber+1).create();
         UDPClient.runClient(routerAddress, packetList, syn, ack, fin);
     }
 
