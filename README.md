@@ -73,10 +73,7 @@ get http://localhost:8007/images/fun.jpg
 
 To execute a *POST* Request, 
 
- httpc post [-v] [-h key:value] [-d inline-data] [-f file] URL, where
- 
- -v Prints the detail of the response such as protocol, status,
- and headers.
+ httpc post [-h key:value] [-d inline-data] [-f file] URL, where
  
  -h key:value Associates headers to HTTP Request with the format
  'key:value'.
@@ -90,9 +87,9 @@ To execute a *POST* Request,
 
 Examples:
 
-post -v -d "Hello world!" -H "Content-Length:12" http://localhost:8007/bob2.txt
+post -d "Hello world!" -H "Content-Length:12" http://localhost:8007/bob2.txt
 
-post -v -d "Hello world!" -H "Content-Length:12" http://localhost:8007/hey/my/name/is/bob.txt
+post -d "Hello world!" -H "Content-Length:12" http://localhost:8007/hey/my/name/is/bob.txt
 
 
 Counter Examples: 
