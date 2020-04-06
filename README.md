@@ -47,18 +47,19 @@ To complete this modification, in the HTTP Client
 
 ### HOW TO USE (TESTS)
 
-To execute a *GET* Request, the user must enter get 
-httpc command [arguments]
-The commands are:
-get executes a HTTP GET request and prints the response.
-                                                        post executes a HTTP POST request and prints the response.
-                                                        help prints this screen.
-                                                       Use "httpc help [command]" for more information about a comman
+To execute a *GET* Request, 
 
-"get httpc is a curl-like application but supports HTTP protocol only.
-                                                 d."
-GET REQUEST: "
+httpc get [-v] [-h key:value] URL, where
 
+-v Prints the detail of the response such as protocol, status,
+and headers.
+
+-h key:value Associates headers to HTTP Request with the format
+'key:value'.
+
+-Due to the structure of the message being passed, the URL has to be local. 
+
+Examples: 
 
 get http://localhost:8007/
 
@@ -70,9 +71,31 @@ get http://localhost:8007/myWebsite.html
 
 get http://localhost:8007/images/fun.jpg
 
+To execute a *POST* Request, 
+
+ httpc post [-v] [-h key:value] [-d inline-data] [-f file] URL, where
+ 
+ -v Prints the detail of the response such as protocol, status,
+ and headers.
+ 
+ -h key:value Associates headers to HTTP Request with the format
+ 'key:value'.
+ 
+ -d string Associates an inline data to the body HTTP POST request.
+ 
+ -f file Associates the content of a file to the body HTTP POST
+ request.
+ 
+ Either [-d] or [-f] can be used but not both.
+
+Examples:
+
 post -v -d "Hello world!" -H "Content-Length:12" http://localhost:8007/bob2.txt
 
 post -v -d "Hello world!" -H "Content-Length:12" http://localhost:8007/hey/my/name/is/bob.txt
+
+
+Counter Examples: 
 
 @forbidden
 http://localhost:8007/hey/my/name/is/bob.txt
