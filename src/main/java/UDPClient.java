@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -88,10 +87,10 @@ public class UDPClient {
 
                 updateRTT();
                 keys.clear();
+                selector.close();
             }
-
             sendPacket(routerAddr, channel, fin);
-            listenForResourcePackets(channel, routerAddr);
+            listenForResourcePackets(channel, routerAddr, fin);
         }
     }
 
@@ -143,11 +142,7 @@ public class UDPClient {
         buf.flip();
         //read from buffer and create packet
         Packet resp = Packet.fromBuffer(buf);
-        logger.info("RECEIVED PACKET----------------------");
-        logger.info("Packet: {}", resp);
-        logger.info("Router: {}", router);
-        String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
-        logger.info("Payload: {}", payload);
+        logger.info("Received {} Packet #{} from router at {}", packetTypeToString(resp.getType()), resp.getSequenceNumber(), router);
 
         return resp;
     }
@@ -156,7 +151,7 @@ public class UDPClient {
         channel.send(p.toBuffer(), routerAddr);
         // start timer
         startTime = System.currentTimeMillis();
-        logger.info("Sending \"{}\" to router at {}", new String(p.getPayload(), StandardCharsets.UTF_8), routerAddr);
+        logger.info("Sending {} Packet #{} to router at {}", packetTypeToString(p.getType()), p.getSequenceNumber(), routerAddr);
     }
 
     public static void updateRTT() {
@@ -248,7 +243,6 @@ public class UDPClient {
     }
 
     private void sendPostRequest(String header, String data) throws IOException {
-        sender = sender.concat("Content-Length: "+data.length());
         sender = sender.concat("\n");
         sender = sender.concat(data);
         sender = sender.concat("Connection: Close");
@@ -268,21 +262,32 @@ public class UDPClient {
         UDPClient.runClient(routerAddress, packetList, syn, ack, fin);
     }
 
-    private static void listenForResourcePackets(DatagramChannel channel, SocketAddress routerAddr) throws IOException {
+    private static void listenForResourcePackets(DatagramChannel channel, SocketAddress routerAddr, Packet fin) throws IOException {
         payloadMap = new HashMap<>();
+        boolean initialCycle = true;
+        int count = 0;
             for (; ; ) {
                 channel.configureBlocking(false);
                 Selector selector = Selector.open();
                 channel.register(selector, OP_READ);
                 // Try to receive a packet within timeout.
-                logger.info("Waiting for the response - {}ms", timeoutInterval);
+                logger.info("Waiting for the resource packets - {}ms", timeoutInterval);
                 selector.select(timeoutInterval);
 
                 Set<SelectionKey> keys = selector.selectedKeys();
                 if (keys.isEmpty()) {
+                    if(initialCycle){
+                        initialCycle = false;
+                        logger.info("Trying FIN again.");
+                        sendPacket(routerAddr, channel, fin);
+                    }
+                    if(count > 4){
+                        logger.info("Number of tries exceeded, printing received resources and exiting.");
+                        printResource();
+                    }
+                    count+=1;
                     continue;
                 }
-
                 int responseType = 0;
                 Packet receivedPacket = receivePacket(channel);
                 String payload = new String(receivedPacket.getPayload(), StandardCharsets.UTF_8);
@@ -314,6 +319,7 @@ public class UDPClient {
                     Packet resp = makeResponsePacket(responseType, payload, receivedPacket);
                     sendPacket(routerAddr, channel, resp);
                 }
+                initialCycle = false;
             }
     }
 
@@ -333,23 +339,29 @@ public class UDPClient {
 
     private static String packetPayloadsToString() {
         StringBuilder sb = new StringBuilder();
-        for(String payload: payloadMap.values()){
-            sb.append(payload);
+        for(int i=0; i<payloadMap.size(); i++){
+            sb.append(payloadMap.get(i));
         }
         return sb.toString();
     }
-    private static Packet receiveResource(ByteBuffer buf, SocketAddress router) throws IOException {
-        //change buffer to be readable
-        buf.flip();
-        //read from buffer and create packet
-        Packet resp = Packet.fromBuffer(buf);
-        buf.flip();
-        logger.info("RECEIVED PACKET----------------------");
-        logger.info("Packet: {}", resp);
-        logger.info("Router: {}", router);
-        String payload = new String(resp.getPayload(), StandardCharsets.UTF_8);
-        logger.info("Payload: {}", payload);
-        return resp;
+
+    private static String packetTypeToString(int type) {
+        switch (type){
+            case 0:
+                return "DATA";
+            case 1:
+                return "SYN";
+            case 2:
+                return "SYN_ACK";
+            case 3:
+                return "ACK";
+            case 4:
+                return "NAK";
+            case 5:
+                return "FIN";
+            default:
+                return "NAK";
+        }
     }
 }
 
