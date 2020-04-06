@@ -1,5 +1,3 @@
-package ServerFromA2;
-
 public enum Status {
     OK(200, "OK"),
     NOT_FOUND(404, "Not Found"),

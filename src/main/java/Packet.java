@@ -99,7 +99,7 @@ public class Packet {
      */
     public static Packet fromBuffer(ByteBuffer buf) throws IOException {
         if (buf.limit() < MIN_LEN || buf.limit() > MAX_LEN) {
-            throw new IOException("Invalid length");
+            throw new IOException("Invalid length"+buf);
         }
 
         Builder builder = new Builder();
