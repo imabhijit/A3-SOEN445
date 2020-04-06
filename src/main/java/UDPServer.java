@@ -113,7 +113,7 @@ public class UDPServer {
         String resourceData = getResource(requestedData);
         ArrayList<Packet> packetList = buildPackets(resourceData, clientAddr, DATA);
         Packet fin = makePacket(clientAddr, FIN, ("FIN").getBytes());
-        sendToClient(routerAddress, packetList, fin, channel, buf);
+        sendToClientSelectiveRepeat(routerAddress, packetList, fin, channel, buf);
     }
 
     ///////////////////////////////TAKEN FROM UDP CLIENT - NEEDS REFACTORING ///////////////////////////////////////////////
@@ -192,7 +192,7 @@ public class UDPServer {
         timeoutInterval = estimatedRTT + 4 * devRTT;
     }
 
-    protected static void sendToClient(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet fin, DatagramChannel channel, ByteBuffer buf) throws IOException {
+    protected static void sendToClientSelectiveRepeat(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet fin, DatagramChannel channel, ByteBuffer buf) throws IOException {
         logger.info("Sending resource to client.");
         ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
         sentList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));

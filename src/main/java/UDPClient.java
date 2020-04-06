@@ -43,7 +43,7 @@ public class UDPClient {
     private static HashMap<Integer, String> payloadMap;
 
 
-    protected static void runClient(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet syn, Packet ack, Packet fin) throws IOException {
+    protected static void runClientSelectiveRepeat(SocketAddress routerAddr, ArrayList<Packet> packetList, Packet syn, Packet ack, Packet fin) throws IOException {
         try (DatagramChannel channel = DatagramChannel.open()) {
             channel.bind(new InetSocketAddress(41830));
             ackList = new ArrayList<>(Arrays.asList(new Boolean[numberOfPackets]));
@@ -259,7 +259,7 @@ public class UDPClient {
         Packet syn = makePacket(serverAddress, SYN, ("SYN").getBytes()).toBuilder().setSequenceNumber(0).create();
         Packet ack = makePacket(serverAddress, ACK, String.valueOf(numberOfPackets).getBytes()).toBuilder().setSequenceNumber(1).create();
         Packet fin = makePacket(serverAddress, FIN, ("FIN").getBytes()).toBuilder().setSequenceNumber(sequenceNumber+1).create();
-        UDPClient.runClient(routerAddress, packetList, syn, ack, fin);
+        UDPClient.runClientSelectiveRepeat(routerAddress, packetList, syn, ack, fin);
     }
 
     private static void listenForResourcePackets(DatagramChannel channel, SocketAddress routerAddr, Packet fin) throws IOException {
